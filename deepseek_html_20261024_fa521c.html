@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>计算器</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: #000; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none; overflow: hidden;
+  }
+  .calc {
+    width: min(100vw, 430px);
+    height: 100%;
+    max-height: 932px;
+    padding: calc(10px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background: #000;
+  }
+  .display-wrap {
+    flex: 1;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    padding: 8px 10px 8px;
+    min-height: 110px;
+  }
+  .hint {
+    font-size: 12px; color: #8a8a8e;
+    text-align: center; min-height: 18px; margin-bottom: 8px;
+  }
+  .display {
+    width: 100%;
+    text-align: right;
+    font-weight: 300;
+    line-height: 1.05;
+    letter-spacing: -0.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    font-size: clamp(56px, 17vw, 86px);
+  }
+  .keys {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  button {
+    border: 0; padding: 0;
+    font-family: inherit;
+    font-size: clamp(26px, 7.6vw, 34px);
+    font-weight: 400;
+    color: #fff; background: #333;
+    border-radius: 50%;
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: filter .12s;
+  }
+  button:active { filter: brightness(1.4); }
+  button.fn {
+    background: #a5a5a5; color: #000;
+    font-size: clamp(22px, 6.6vw, 30px);
+  }
+  button.fn:active { filter: brightness(1.15); }
+  button.op {
+    background: #ff9f0a;
+    font-size: clamp(30px, 8.6vw, 40px);
+  }
+  button.op:active { filter: brightness(1.15); }
+  button.zero {
+    grid-column: span 2;
+    aspect-ratio: auto;
+    border-radius: 999px;
+    justify-content: flex-start;
+    padding-left: 20%;
+  }
+</style>
+</head>
+<body>
+<div class="calc">
+  <div class="display-wrap">
+    <div id="hint" class="hint">请输入第一个数</div>
+    <div id="display" class="display">0</div>
+  </div>
+  <div class="keys">
+    <button class="fn" data-key="AC">AC</button>
+    <button class="fn" data-key="sign">+/−</button>
+    <button class="fn" data-key="percent">%</button>
+    <button class="op" data-key="/">÷</button>
+
+    <button data-key="7">7</button>
+    <button data-key="8">8</button>
+    <button data-key="9">9</button>
+    <button class="op" data-key="*">×</button>
+
+    <button data-key="4">4</button>
+    <button data-key="5">5</button>
+    <button data-key="6">6</button>
+    <button class="op" data-key="-">−</button>
+
+    <button data-key="1">1</button>
+    <button data-key="2">2</button>
+    <button data-key="3">3</button>
+    <button class="op" data-key="+">+</button>
+
+    <button class="zero" data-key="0">0</button>
+    <button data-key=".">.</button>
+    <button class="op" data-key="=">=</button>
+  </div>
+</div>
+<script>
+  // ===== 目标数字：改成 10 位数，盲按 10 下就显示完整一串 =====
+  const TARGET = 2026021622;
+
+  const TARGET_DISPLAY = String(TARGET);
+  const TARGET_LEN = TARGET_DISPLAY.length;
+  const PAD_DIFF_TO_TARGET_LENGTH = true;
+
+  const displayEl = document.getElementById('display');
+  const hintEl = document.getElementById('hint');
+
+  let phase = 'A'; // A: 第一个数  B: 第二个数  blindReady/blind: 盲按  done: 结束
+  let a = '', b = '';
+  let sum = 0;
+  let diffStr = '';
+  let blindCount = 0;
+
+  function fitFont(text) {
+    const n = text.length;
+    let size;
+    if (n <= 6) size = 'clamp(56px, 17vw, 86px)';
+    else if (n <= 8) size = 'clamp(46px, 14vw, 70px)';
+    else if (n <= 10) size = 'clamp(38px, 11.5vw, 58px)';
+    else size = 'clamp(30px, 9vw, 46px)';
+    displayEl.style.fontSize = size;
+  }
+
+  function setDisplay(text) {
+    displayEl.textContent = text;
+    fitFont(text);
+  }
+  function setHint(text) { hintEl.textContent = text; }
+
+  function reset() {
+    phase = 'A'; a = ''; b = ''; sum = 0; diffStr = ''; blindCount = 0;
+    setDisplay('0');
+    setHint('请输入第一个数');
+  }
+
+  function press(key) {
+    if (key === 'AC') {
+      // 盲按阶段忽略 AC，避免倒扣乱按把魔术重置掉
+      if (phase === 'blindReady' || phase === 'blind') return;
+      reset();
+      return;
+    }
+
+    if (key === '+') {
+      if (phase === 'A' && a !== '') {
+        phase = 'B';
+        setDisplay(a);
+        setHint('输入第二个数');
+      }
+      return;
+    }
+
+    if (key === '=') {
+      if (phase === 'B' && a !== '' && b !== '') {
+        sum = parseInt(a, 10) + parseInt(b, 10);
+        const diffNum = Number(TARGET) - sum;
+        if (diffNum < 0) {
+          diffStr = TARGET_DISPLAY;
+        } else {
+          diffStr = String(diffNum);
+          if (PAD_DIFF_TO_TARGET_LENGTH) diffStr = diffStr.padStart(TARGET_LEN, '0');
+        }
+        phase = 'blindReady';
+        setDisplay(String(sum));
+        setHint('倒扣手机随便按 ' + TARGET_LEN + ' 下，最后按 =');
+        return;
+      }
+      if (phase === 'blindReady' || phase === 'blind') {
+        setDisplay(TARGET_DISPLAY);
+        phase = 'done';
+        setHint('惊喜定格！');
+        return;
+      }
+      return;
+    }
+
+    if (/^\d$/.test(key)) {
+      if (phase === 'A') {
+        a = a === '' ? key : (a === '0' ? key : a + key);
+        setDisplay(a);
+        return;
+      }
+      if (phase === 'B') {
+        b = b === '' ? key : (b === '0' ? key : b + key);
+        setDisplay(b);
+        return;
+      }
+      if (phase === 'blindReady') {
+        phase = 'blind'; blindCount = 1;
+        setDisplay(diffStr.slice(0, Math.min(blindCount, diffStr.length)));
+        setHint('继续随便按，最后按 =');
+        return;
+      }
+      if (phase === 'blind') {
+        blindCount++;
+        setDisplay(diffStr.slice(0, Math.min(blindCount, diffStr.length)));
+        return;
+      }
+    }
+
+    // ÷ × − . +/- % 在魔术流程中不参与，点击无效果
+  }
+
+  document.querySelector('.keys').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-key]');
+    if (!btn) return;
+    press(btn.dataset.key);
+  });
+</script>
+</body>
+</html>
